@@ -2,3 +2,9 @@
 __pycache__/
 artifacts/
 *.bak
+# local save games / editor history (test fixtures are tracked)
+*.ult
+*.ULT
+!tests/fixtures/**/*.ult
+.u3edit-history/
+dist/
