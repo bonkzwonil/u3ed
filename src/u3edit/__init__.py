@@ -32,6 +32,8 @@ def main() -> None:
     parser.add_argument("directory", nargs="?", default=".",
                         help="game directory containing ROSTER.ULT and PARTY.ULT")
     parser.add_argument("--dump", action="store_true", help="print characters and exit")
+    parser.add_argument("--sync-roster", action="store_true",
+                        help="mirror party members into roster.ult on save (toggle in the TUI via Ctrl+P)")
     args = parser.parse_args()
     try:
         save = SaveGame(args.directory)
@@ -42,4 +44,4 @@ def main() -> None:
         return
     from .app import U3EditApp
 
-    U3EditApp(save).run()
+    U3EditApp(save, sync_roster=args.sync_roster).run()

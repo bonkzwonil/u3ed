@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from u3edit.format import SaveGame, bcd_decode, bcd_encode
+from u3edit.format import SaveGame, bcd_decode, bcd_encode, describe_changes
+from u3edit.history import History
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -39,8 +40,7 @@ def test_reads_played_save(played):
 def test_no_changes_writes_nothing(played):
     before = {p.name: p.read_bytes() for p in played.iterdir()}
     s = SaveGame(played)
-    s.sync_party_to_roster()  # roster is stale in the fixture, so this dirties it
-    s.roster[:] = (played / "roster.ult").read_bytes()
+    assert not s.dirty
     assert s.save() == []
     assert {p.name: p.read_bytes() for p in played.iterdir()} == before
 
@@ -55,10 +55,10 @@ def test_edit_save_reload(played):
     c.marks = 0xFF
     s.moves = 1
     s.moons = (0, 7)
+    assert set(s.save()) == {"party.ult", "sosaria.ult"}  # no sync by default
+    assert SaveGame(played).roster_char(1).name == "Girl"
     s.sync_party_to_roster()
-    written = {p.name for p in s.save()}
-    assert written == {"party.ult", "roster.ult", "sosaria.ult"}
-    assert (played / "party.ult.bak").read_bytes() == original
+    assert s.save() == ["roster.ult"]
 
     r = SaveGame(played)
     c = r.party_char(1)
@@ -86,3 +86,29 @@ def test_case_insensitive_files(tmp_path):
         shutil.copy(FIXTURES / "fresh" / name, tmp_path / name.upper())
     s = SaveGame(tmp_path)
     assert s.sosaria is None and s.roster_char(0).empty
+
+
+def test_describe_changes(played):
+    old = SaveGame(played)
+    new = SaveGame.from_files(old.files())
+    new.party_char(0).set("gold", 4321)
+    new.party_char(0).marks |= 1
+    new.moves = 7
+    new.sync_party_to_roster()
+    changes = describe_changes(old, new)
+    assert "Korq (party 1): gold 113 → 4321, +Love" in changes
+    assert "Party moves: 45295 → 7" in changes
+    assert changes[-1].startswith("Roster synced from party: ")
+
+
+def test_history_roundtrip(played):
+    h = History(played)
+    assert h.versions() == []
+    files = SaveGame(played).files()
+    v1 = h.record(files, "Original files")
+    v2 = h.record({**files, "party.ult": bytes(274)}, "zeroed", ["a", "b"])
+    assert v1.path.name.endswith(".tar.bz2") and v1.number == 1 and v2.number == 2
+    assert [v.number for v in h.versions()] == [2, 1]
+    latest = h.latest()
+    assert (latest.label, latest.changes) == ("zeroed", ["a", "b"])
+    assert h.files(h.versions()[1]) == files

@@ -8,13 +8,13 @@ Pure Python + [Textual](https://textual.textualize.io/). No Windows, no Wine.
 ```sh
 uv run u3edit /path/to/ultima3          # TUI
 uv run u3edit --dump /path/to/ultima3   # print characters and exit
+uv run u3edit --sync-roster /path/...   # start with roster sync on
 ```
 
 The directory must contain `ROSTER.ULT` and `PARTY.ULT`; `SOSARIA.ULT` (moon phases) is optional.
 File-name case doesn't matter.
 
-Work on a copy of your save directory. On the first save, the editor keeps every
-original file as `*.ult.bak`.
+Work on a copy of your save directory.
 
 | Key | Action |
 |---|---|
@@ -23,6 +23,8 @@ original file as `*.ult.bak`.
 | `Ctrl+S` / `F2` | save |
 | `F3` | heal (status Good, HP = max HP) |
 | `F4` | revert selected character to file contents |
+| `F5` | history (also via `Ctrl+P` → "History") |
+| `Ctrl+P` | command palette, incl. "Roster sync: turn on/off" |
 | `Ctrl+Q` | quit (asks if unsaved) |
 
 Editable: name, status, race, class, gender, stats, MP/HP/max HP/exp, food, gold, gems,
@@ -31,9 +33,27 @@ transport, moves, position, moon phases.
 
 ## How party members are handled
 
-While a party is formed, the game uses the copies in `PARTY.ULT`, and `ROSTER.ULT`
-can be stale. Selecting a roster slot that belongs to the active party edits the
-`PARTY.ULT` record. On save, party records are mirrored back into their roster slots.
+While a party is formed, the game uses the copies in `PARTY.ULT`. It writes only that
+file when saving and leaves `ROSTER.ULT` stale. Selecting a roster slot that belongs to the
+active party (★) edits the `PARTY.ULT` record.
+
+**Roster sync** (off by default, like the game): when on, saving also copies the
+party records into their roster slots. Toggle it with `Ctrl+P` or `--sync-roster`; the
+status bar shows the current setting.
+
+## Version history
+
+Every save adds a version to `<savedir>/.u3edit-history/` as a bzip2 tarball
+(`NNNN-YYYYmmdd-HHMMSS.tar.bz2`) holding the save files and a `meta.json` with the
+list of changes (e.g. `Korq (party 1): gold 113 → 4321`).
+
+- The first save also records the untouched originals ("Original files").
+- If the files on disk changed since the last version, e.g. because the game saved,
+  that state is recorded before it is overwritten ("Changed outside u3edit").
+- `F5` lists all versions with their changes. `r` or `Enter` restores one; the
+  restore itself is recorded as a new version, so it can be undone.
+
+The tarballs are plain `tar -xjf`-able if you need to recover files by hand.
 
 ## File format (DOS)
 

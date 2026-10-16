@@ -193,18 +193,33 @@ class Character:
         )
 
 
+FILE_SIZES = {"roster.ult": ROSTER_SIZE, "party.ult": PARTY_SIZE, "sosaria.ult": SOSARIA_SIZE}
+OPTIONAL_FILES = {"sosaria.ult"}
+
+
 class SaveGame:
-    """The three save files of one Ultima III directory."""
+    """The save files of one Ultima III directory, held in memory.
+
+    Files are keyed by their lower-case DOS name (``roster.ult`` ...).
+    """
 
     def __init__(self, directory: str | Path):
         self.dir = Path(directory)
-        self.roster_path = self._find("roster.ult")
-        self.party_path = self._find("party.ult")
-        self.sosaria_path = self._find("sosaria.ult", required=False)
-        self.roster = self._load(self.roster_path, ROSTER_SIZE)
-        self.party = self._load(self.party_path, PARTY_SIZE)
-        self.sosaria = self._load(self.sosaria_path, SOSARIA_SIZE) if self.sosaria_path else None
-        self._original = self._snapshot()
+        self.paths = {
+            name: path
+            for name in FILE_SIZES
+            if (path := self._find(name, required=name not in OPTIONAL_FILES))
+        }
+        self.load(self.read_disk())
+
+    @classmethod
+    def from_files(cls, files: dict[str, bytes]) -> SaveGame:
+        """In-memory save game, e.g. for a history version."""
+        save = cls.__new__(cls)
+        save.dir = None
+        save.paths = {}
+        save.load(files)
+        return save
 
     def _find(self, name: str, required: bool = True) -> Path | None:
         # DOS file names: accept any case.
@@ -215,19 +230,29 @@ class SaveGame:
             raise FileNotFoundError(f"{name} not found in {self.dir}")
         return None
 
-    @staticmethod
-    def _load(path: Path, size: int) -> bytearray:
-        data = bytearray(path.read_bytes())
-        if len(data) != size:
-            raise ValueError(f"{path.name}: expected {size} bytes, got {len(data)}")
-        return data
+    def read_disk(self) -> dict[str, bytes]:
+        return {name: path.read_bytes() for name, path in self.paths.items()}
 
-    def _snapshot(self) -> tuple[bytes, bytes, bytes | None]:
-        return bytes(self.roster), bytes(self.party), bytes(self.sosaria) if self.sosaria else None
+    def load(self, files: dict[str, bytes]) -> None:
+        """Replace the in-memory state; the loaded state counts as unmodified."""
+        for name, data in files.items():
+            if len(data) != FILE_SIZES[name]:
+                raise ValueError(f"{name}: expected {FILE_SIZES[name]} bytes, got {len(data)}")
+        self.roster = bytearray(files["roster.ult"])
+        self.party = bytearray(files["party.ult"])
+        sosaria = files.get("sosaria.ult")
+        self.sosaria = bytearray(sosaria) if sosaria is not None else None
+        self._original = self.files()
+
+    def files(self) -> dict[str, bytes]:
+        files = {"roster.ult": bytes(self.roster), "party.ult": bytes(self.party)}
+        if self.sosaria is not None:
+            files["sosaria.ult"] = bytes(self.sosaria)
+        return files
 
     @property
     def dirty(self) -> bool:
-        return self._snapshot() != self._original
+        return self.files() != self._original
 
     def roster_char(self, slot: int) -> Character:
         return Character(self.roster, slot * RECORD_SIZE)
@@ -293,8 +318,8 @@ class SaveGame:
     def sync_party_to_roster(self) -> None:
         """Copy active party records into their roster slots.
 
-        The game works on PARTY.ULT while a party is formed; mirroring the
-        edits into ROSTER.ULT keeps both views consistent.
+        The game itself only writes PARTY.ULT while a party is formed and
+        leaves ROSTER.ULT stale; this is an opt-in convenience.
         """
         for slot, number in enumerate(self.party_order):
             if 1 <= number <= ROSTER_SLOTS:
@@ -302,20 +327,79 @@ class SaveGame:
                 base = (number - 1) * RECORD_SIZE
                 self.roster[base : base + RECORD_SIZE] = rec
 
-    def save(self, backup: bool = True) -> list[Path]:
+    def save(self) -> list[str]:
+        """Write the files that differ from the loaded state; return their names."""
         written = []
-        for path, data, orig in zip(
-            (self.roster_path, self.party_path, self.sosaria_path),
-            self._snapshot(),
-            self._original,
-        ):
-            if path is None or data == orig:
-                continue
-            if backup:
-                bak = path.with_name(path.name + ".bak")
-                if not bak.exists():
-                    bak.write_bytes(path.read_bytes())
-            path.write_bytes(data)
-            written.append(path)
-        self._original = self._snapshot()
+        for name, data in self.files().items():
+            if data != self._original.get(name):
+                self.paths[name].write_bytes(data)
+                written.append(name)
+        self._original = self.files()
         return written
+
+    def write_files(self, files: dict[str, bytes]) -> None:
+        """Overwrite the files on disk with ``files`` and load them."""
+        for name, data in files.items():
+            if name in self.paths:
+                self.paths[name].write_bytes(data)
+        self.load(files)
+
+
+def _char_changes(a: Character, b: Character) -> list[str]:
+    out = []
+    if a.name != b.name:
+        out.append(f"name {a.name!r} → {b.name!r}")
+    for attr, label, table in (("status", "status", STATUS), ("race", "race", RACES),
+                               ("klass", "class", CLASSES), ("gender", "gender", GENDERS)):
+        x, y = getattr(a, attr), getattr(b, attr)
+        if x != y:
+            out.append(f"{label} {table.get(x, x)} → {table.get(y, y)}")
+    for key, field in NUMERIC_FIELDS.items():
+        x, y = a.get(key), b.get(key)
+        if x != y:
+            out.append(f"{field.label.lower()} {x} → {y}")
+    gained = [m for i, m in enumerate(MARKS) if b.marks & ~a.marks & 1 << i]
+    lost = [m for i, m in enumerate(MARKS) if a.marks & ~b.marks & 1 << i]
+    out += [f"+{m}" for m in gained] + [f"-{m}" for m in lost]
+    for attr, label, names in (("armor", "worn", ARMOR), ("weapon", "readied", WEAPONS)):
+        x, y = getattr(a, attr), getattr(b, attr)
+        if x != y:
+            name = lambda i: names[i] if i < len(names) else str(i)  # noqa: E731
+            out.append(f"{label} {name(x)} → {name(y)}")
+    if not out:
+        out.append("other bytes")
+    return out
+
+
+def describe_changes(old: SaveGame, new: SaveGame) -> list[str]:
+    """Human-readable list of differences between two save states."""
+    out = []
+    for label, get in (
+        ("transport", lambda s: TRANSPORT.get(s.transport, hex(s.transport))),
+        ("moves", lambda s: s.moves),
+        ("position", lambda s: s.position),
+        ("party order", lambda s: s.party_order),
+        ("moons", lambda s: s.moons),
+    ):
+        if get(old) != get(new):
+            out.append(f"Party {label}: {get(old)} → {get(new)}")
+    if old.party[:PARTY_HEADER] != new.party[:PARTY_HEADER] and not out:
+        out.append("Party header: other bytes")
+    party_records = {new.party_char(i).raw for i in range(PARTY_SLOTS)}
+    mirrored = []
+    for where, count, getter in (("party", PARTY_SLOTS, SaveGame.party_char),
+                                 ("roster", ROSTER_SLOTS, SaveGame.roster_char)):
+        for i in range(count):
+            a, b = getter(old, i), getter(new, i)
+            if a.raw == b.raw:
+                continue
+            name = b.name or a.name or "(empty)"
+            if where == "roster" and b.raw in party_records:
+                mirrored.append(name)
+                continue
+            out.append(f"{name} ({where} {i + 1}): " + ", ".join(_char_changes(a, b)))
+    if mirrored:
+        out.append("Roster synced from party: " + ", ".join(mirrored))
+    if old.sosaria != new.sosaria and old.moons == new.moons:
+        out.append("sosaria.ult: other bytes")
+    return out

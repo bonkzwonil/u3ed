@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from textual import on
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
 from textual.containers import Grid, Horizontal, VerticalScroll
-from textual.screen import ModalScreen
+from textual.screen import ModalScreen, Screen
 from textual.widgets import (
-    Button, Checkbox, Footer, Header, Input, Label, ListItem, ListView, Select,
-    Static, TabbedContent, TabPane,
+    Button, Checkbox, DataTable, Footer, Header, Input, Label, ListItem, ListView,
+    Select, Static, TabbedContent, TabPane,
 )
 
 from . import format as f
+from .history import History, Version
 
 LETTER_SELECTS = {
     "status": f.STATUS,
@@ -27,16 +30,92 @@ def number_row(field: f.Field) -> ComposeResult:
     yield Input(id=f"num-{field.key}", type="integer", max_length=2 * field.size, classes="num")
 
 
-class ConfirmQuit(ModalScreen[bool]):
+class Confirm(ModalScreen[bool]):
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, question: str, yes: str):
+        super().__init__()
+        self.question, self.yes = question, yes
+
     def compose(self) -> ComposeResult:
         with Grid(id="dialog"):
-            yield Label("Unsaved changes. Quit anyway?", id="question")
-            yield Button("Quit", variant="error", id="yes")
+            yield Label(self.question, id="question")
+            yield Button(self.yes, variant="error", id="yes")
             yield Button("Cancel", variant="primary", id="no")
 
     @on(Button.Pressed)
     def done(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "yes")
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+class HistoryScreen(Screen):
+    """Browse saved versions and restore one."""
+
+    BINDINGS = [
+        Binding("escape,q", "app.pop_screen", "Back"),
+        Binding("r", "restore", "Restore"),
+    ]
+
+    def __init__(self, history: History, disk: dict[str, bytes]):
+        super().__init__()
+        self.history = history
+        self.disk = disk
+        self.versions: list[Version] = []
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield DataTable(id="versions", cursor_type="row", zebra_stripes=True)
+        with VerticalScroll(id="changes-box"):
+            yield Static(id="changes")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.sub_title = f"History: {self.history.dir}"
+        table = self.query_one(DataTable)
+        table.add_columns("#", "Saved", "", "Summary")
+        self.versions = self.history.versions()
+        for v in self.versions:
+            current = "● on disk" if self.history.files(v) == self.disk else ""
+            table.add_row(v.number, f"{v.time:%Y-%m-%d %H:%M:%S}", current, v.label, key=str(v.number))
+        if not self.versions:
+            self.query_one("#changes", Static).update("No versions yet. Every save adds one.")
+        table.focus()
+
+    @on(DataTable.RowHighlighted)
+    def show_changes(self, event: DataTable.RowHighlighted) -> None:
+        v = self.selected
+        if v:
+            body = "\n".join(f"• {c}" for c in v.changes) or "(no changes listed)"
+            self.query_one("#changes", Static).update(
+                f"[b]Version {v.number}[/b]  {v.time:%Y-%m-%d %H:%M:%S}  {v.label}\n\n{body}"
+            )
+
+    @on(DataTable.RowSelected)
+    def row_selected(self, event: DataTable.RowSelected) -> None:
+        self.action_restore()
+
+    @property
+    def selected(self) -> Version | None:
+        table = self.query_one(DataTable)
+        if not self.versions or table.cursor_row is None:
+            return None
+        return self.versions[table.cursor_row]
+
+    def action_restore(self) -> None:
+        v = self.selected
+        if v is None:
+            return
+        unsaved = " Unsaved edits are discarded." if self.app.save.dirty else ""
+
+        def done(ok: bool | None) -> None:
+            if ok:
+                self.app.restore_version(v)
+                self.app.pop_screen()
+
+        self.app.push_screen(Confirm(f"Restore version {v.number}?{unsaved}", "Restore"), done)
 
 
 class U3EditApp(App):
@@ -52,22 +131,37 @@ class U3EditApp(App):
     #dialog { grid-size: 2; grid-gutter: 1 2; padding: 1 2; width: 50; height: 11;
               border: thick $error; background: $surface; }
     #question { column-span: 2; height: 1fr; width: 1fr; content-align: center middle; }
-    ConfirmQuit { align: center middle; }
+    Confirm { align: center middle; }
+    #versions { height: 1fr; border: round $primary; }
+    #changes-box { height: 12; border: round $primary; padding: 0 1; }
     """
     BINDINGS = [
         Binding("ctrl+s,f2", "save", "Save"),
         Binding("f3", "heal", "Heal"),
         Binding("f4", "revert", "Revert char"),
+        Binding("f5", "history", "History"),
         Binding("ctrl+q", "quit", "Quit"),
     ]
 
-    def __init__(self, save: f.SaveGame):
+    def __init__(self, save: f.SaveGame, sync_roster: bool = False):
         super().__init__()
         self.save = save
+        self.sync_roster = sync_roster
+        self.history = History(save.dir)
         self.char: f.Character | None = None
         self.char_label = ""
         self._loading = False
         self.sub_title = str(save.dir)
+
+    def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
+        yield from super().get_system_commands(screen)
+        state = "off" if self.sync_roster else "on"
+        yield SystemCommand(
+            f"Roster sync: turn {state}",
+            "Mirror party members into roster.ult on save (the game itself doesn't)",
+            self.action_toggle_sync,
+        )
+        yield SystemCommand("History", "Show saved versions and restore one", self.action_history)
 
     # --- layout ---------------------------------------------------------
     def compose(self) -> ComposeResult:
@@ -225,11 +319,10 @@ class U3EditApp(App):
 
     # --- apply edits ----------------------------------------------------
     def set_status(self, text: str, error: bool = False) -> None:
-        dirty = " [modified]" if self.save.dirty else ""
-        style = "bold red" if error else ""
-        self.query_one("#status", Static).update(
-            f"[{style}]{text}[/]{dirty}" if style else f"{text}{dirty}"
-        )
+        dirty = "  [b yellow]modified[/]" if self.save.dirty else ""
+        sync = "[b green]on[/]" if self.sync_roster else "off"
+        msg = f"[b red]{text}[/]" if error else text
+        self.query_one("#status", Static).update(f"{msg}{dirty}  │ roster sync: {sync}")
 
     def apply(self, widget, setter) -> None:
         if self._loading:
@@ -293,19 +386,67 @@ class U3EditApp(App):
                    lambda: setattr(c, "marks", c.marks | bit if event.value else c.marks & ~bit))
 
     # --- actions ----------------------------------------------------------
+    def snapshot_disk(self) -> dict[str, bytes]:
+        """Record the on-disk state if history doesn't have it yet; return it.
+
+        This keeps the original files and anything the game wrote since the
+        last version.
+        """
+        disk = self.save.read_disk()
+        latest = self.history.latest()
+        if latest is None:
+            self.history.record(disk, "Original files")
+        else:
+            previous = self.history.files(latest)
+            if previous != disk:
+                changes = f.describe_changes(f.SaveGame.from_files(previous), f.SaveGame.from_files(disk))
+                self.history.record(disk, "Changed outside u3edit (game?)", changes)
+        return disk
+
     def action_save(self) -> None:
-        self.save.sync_party_to_roster()
+        if self.sync_roster:
+            self.save.sync_party_to_roster()
+        if not self.save.dirty:
+            self.notify("Nothing to save")
+            return
         try:
+            disk = self.snapshot_disk()
+            changes = f.describe_changes(f.SaveGame.from_files(disk), self.save)
             written = self.save.save()
+            label = "; ".join(changes[:2]) + (f" (+{len(changes) - 2} more)" if len(changes) > 2 else "")
+            version = self.history.record(self.save.files(), label or "Saved", changes)
         except OSError as exc:
             self.set_status(f"Save failed: {exc}", error=True)
             return
-        if written:
-            self.notify("Saved " + ", ".join(p.name for p in written)
-                        + " (originals kept as *.bak)")
-        else:
-            self.notify("Nothing to save")
+        self.notify(f"Saved {', '.join(written)} (version {version.number})")
+        self.refresh_list()
         self.set_status(f"Editing {self.char_label}")
+
+    def restore_version(self, version: Version) -> None:
+        try:
+            disk = self.snapshot_disk()
+            files = self.history.files(version)
+            self.save.write_files(files)
+            changes = f.describe_changes(f.SaveGame.from_files(disk), self.save)
+            self.history.record(files, f"Restored version {version.number}", changes)
+        except (OSError, ValueError) as exc:
+            self.notify(f"Restore failed: {exc}", severity="error")
+            return
+        self.refresh_list()
+        self.load_party()
+        view = self.query_one("#chars", ListView)
+        if view.index is not None:
+            self.char, self.char_label = self.resolve(view.index)
+            self.load_char()
+        self.notify(f"Restored version {version.number}")
+
+    def action_history(self) -> None:
+        self.push_screen(HistoryScreen(self.history, self.save.read_disk()))
+
+    def action_toggle_sync(self) -> None:
+        self.sync_roster = not self.sync_roster
+        self.set_status(f"Editing {self.char_label}")
+        self.notify(f"Roster sync {'on' if self.sync_roster else 'off'}")
 
     def action_heal(self) -> None:
         if self.char and not self.char.empty:
@@ -319,8 +460,7 @@ class U3EditApp(App):
         c = self.char
         if c is None:
             return
-        buf_path = self.save.party_path if c.buf is self.save.party else self.save.roster_path
-        disk = buf_path.read_bytes()
+        disk = self.save.read_disk()["party.ult" if c.buf is self.save.party else "roster.ult"]
         c.buf[c.base : c.base + f.RECORD_SIZE] = disk[c.base : c.base + f.RECORD_SIZE]
         self.load_char()
         self.refresh_current_label()
@@ -335,4 +475,4 @@ class U3EditApp(App):
             if quit_:
                 self.exit()
 
-        self.push_screen(ConfirmQuit(), done)
+        self.push_screen(Confirm("Unsaved changes. Quit anyway?", "Quit"), done)
