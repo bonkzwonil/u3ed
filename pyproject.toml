@@ -3,8 +3,10 @@ name = "u3edit"
 version = "0.1.0"
 description = "Ultima III (DOS) savegame editor with a terminal UI"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-    { name = "bonkzwonil", email = "bonkzwonil@gmail.com" }
+    { name = "Mathias Menzel-Nielsen", email = "matze@matzsoft.de" }
 ]
 requires-python = ">=3.10"
 dependencies = [

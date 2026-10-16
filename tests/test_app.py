@@ -83,7 +83,10 @@ def test_sync_toggle_and_external_change(tmp_path):
             await pilot.pause()
 
     asyncio.run(run())
-    assert SaveGame(game).roster_char(3).get("gold") == 600
+    final = SaveGame(game)
+    assert final.roster_char(3).get("gold") == 600
+    assert final.party_char(0).get("gold") == 600
+    assert final.moves == 1  # the game's change survived our second save
     labels = [v.label for v in History(game).versions()]
     assert labels[1] == "Changed outside u3edit (game?)"
     assert len(labels) == 4

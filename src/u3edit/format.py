@@ -251,8 +251,25 @@ class SaveGame:
         return files
 
     @property
+    def original(self) -> dict[str, bytes]:
+        """The state last loaded or saved."""
+        return dict(self._original)
+
+    @property
     def dirty(self) -> bool:
         return self.files() != self._original
+
+    def rebase(self, base: dict[str, bytes]) -> None:
+        """Re-apply the in-memory edits on top of ``base`` (e.g. files the game
+        wrote since loading). Fields edited here win; everything else comes
+        from ``base``. Buffers are updated in place so Character views stay valid.
+        """
+        mine = self.files()
+        for name, buf in (("roster.ult", self.roster), ("party.ult", self.party),
+                          ("sosaria.ult", self.sosaria)):
+            if buf is not None and name in base:
+                buf[:] = merge(self._original[name], mine[name], base[name], _spans(name))
+        self._original = dict(base)
 
     def roster_char(self, slot: int) -> Character:
         return Character(self.roster, slot * RECORD_SIZE)
@@ -343,6 +360,38 @@ class SaveGame:
             if name in self.paths:
                 self.paths[name].write_bytes(data)
         self.load(files)
+
+
+def _record_spans(base: int) -> list[tuple[int, int]]:
+    fields = [(0, NAME_LEN)] + [(fl.offset, fl.size) for fl in NUMERIC_FIELDS.values()]
+    return [(base + off, size) for off, size in fields]
+
+
+def _spans(name: str) -> list[tuple[int, int]]:
+    """Multi-byte fields that must be merged as a unit; other bytes merge singly."""
+    if name == "roster.ult":
+        return [s for i in range(ROSTER_SLOTS) for s in _record_spans(i * RECORD_SIZE)]
+    if name == "party.ult":
+        header = [(0x03, 4), (0x0A, 4)]  # moves, party order
+        return header + [s for i in range(PARTY_SLOTS)
+                         for s in _record_spans(PARTY_HEADER + i * RECORD_SIZE)]
+    return []
+
+
+def merge(base: bytes, mine: bytes, theirs: bytes, spans: list[tuple[int, int]]) -> bytes:
+    """Three-way merge: spans changed in ``mine`` (vs ``base``) win over ``theirs``."""
+    out = bytearray(theirs)
+    covered = bytearray(len(base))
+    units = []
+    for start, size in spans:
+        units.append((start, size))
+        covered[start : start + size] = b"\1" * size
+    units += [(i, 1) for i in range(len(base)) if not covered[i]]
+    for start, size in units:
+        end = start + size
+        if mine[start:end] != base[start:end]:
+            out[start:end] = mine[start:end]
+    return bytes(out)
 
 
 def _char_changes(a: Character, b: Character) -> list[str]:

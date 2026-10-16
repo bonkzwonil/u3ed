@@ -112,3 +112,16 @@ def test_history_roundtrip(played):
     latest = h.latest()
     assert (latest.label, latest.changes) == ("zeroed", ["a", "b"])
     assert h.files(h.versions()[1]) == files
+
+
+def test_rebase_keeps_game_progress(played):
+    s = SaveGame(played)
+    s.party_char(0).set("gold", 4321)       # our edit: 113 -> 4321
+    game = SaveGame.from_files(s.original)  # meanwhile the game saves
+    game.moves = 50000
+    game.party_char(0).set("gold", 250)     # conflicting field: ours wins as a unit
+    game.party_char(0).set("food", 1500)
+    s.rebase(game.files())
+    c = s.party_char(0)
+    assert (s.moves, c.get("gold"), c.get("food")) == (50000, 4321, 1500)
+    assert describe_changes(game, s) == ["Korq (party 1): gold 250 → 4321"]

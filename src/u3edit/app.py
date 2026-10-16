@@ -404,10 +404,21 @@ class U3EditApp(App):
         return disk
 
     def action_save(self) -> None:
+        try:
+            disk = self.save.read_disk()
+        except OSError as exc:
+            self.set_status(f"Save failed: {exc}", error=True)
+            return
+        merged = disk != self.save.original
+        if merged:
+            # The game saved since we loaded: keep its progress, re-apply our edits.
+            self.save.rebase(disk)
         if self.sync_roster:
             self.save.sync_party_to_roster()
+        if merged:
+            self.reload_view()
         if not self.save.dirty:
-            self.notify("Nothing to save")
+            self.notify("Nothing to save" + (" (reloaded changes from disk)" if merged else ""))
             return
         try:
             disk = self.snapshot_disk()
@@ -418,9 +429,18 @@ class U3EditApp(App):
         except OSError as exc:
             self.set_status(f"Save failed: {exc}", error=True)
             return
-        self.notify(f"Saved {', '.join(written)} (version {version.number})")
+        note = "; merged with newer files on disk" if merged else ""
+        self.notify(f"Saved {', '.join(written)} (version {version.number}{note})")
         self.refresh_list()
         self.set_status(f"Editing {self.char_label}")
+
+    def reload_view(self) -> None:
+        self.refresh_list()
+        self.load_party()
+        view = self.query_one("#chars", ListView)
+        if view.index is not None:
+            self.char, self.char_label = self.resolve(view.index)
+            self.load_char()
 
     def restore_version(self, version: Version) -> None:
         try:
@@ -432,12 +452,7 @@ class U3EditApp(App):
         except (OSError, ValueError) as exc:
             self.notify(f"Restore failed: {exc}", severity="error")
             return
-        self.refresh_list()
-        self.load_party()
-        view = self.query_one("#chars", ListView)
-        if view.index is not None:
-            self.char, self.char_label = self.resolve(view.index)
-            self.load_char()
+        self.reload_view()
         self.notify(f"Restored version {version.number}")
 
     def action_history(self) -> None:

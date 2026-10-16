@@ -1,65 +1,118 @@
 # u3edit
 
-Terminal savegame editor for **Ultima III: Exodus** (DOS / Ultima Trilogy 1989).
-Pure Python + [Textual](https://textual.textualize.io/). No Windows, no Wine.
+**A savegame editor for _Ultima III: Exodus_ that runs right in your terminal.**
+
+No Windows. No Wine. No 1990s shareware installer. Point it at your DOS game directory,
+fix your party and get back to hunting Exodus.
+
+![Character editor](docs/screenshots/character.png)
+
+## Why u3edit?
+
+- **Runs anywhere Python runs.** Linux, macOS, Windows, over SSH, next to your DOSBox window.
+- **A real TUI, not a hex editor.** Dropdowns for race, class and status, validated number
+  fields, checkboxes for the marks and cards. Invalid values turn red and are never written.
+- **Every save is a version you can go back to.** A full, compressed history with
+  human-readable change logs, restorable with two keystrokes. See below.
+- **Works with the game, not against it.** u3edit understands how Ultima III keeps the
+  active party in `PARTY.ULT`, and it won't overwrite progress the game saved while the
+  editor was open.
+- **Byte-exact.** Only the fields you touch change. Unknown bytes survive untouched, so
+  your files stay 100 % compatible with the original game.
+
+## ⏳ The version history
+
+This is the feature to know about. Experimenting with a 40-year-old save format is risky,
+and the history makes it safe:
+
+![Version history](docs/screenshots/history.png)
+
+- **Every save creates a version**, stored as a tiny bzip2 tarball (about 1.4 KB) in
+  `.u3edit-history/` next to your save files.
+- **Your untouched originals are always version 1.** The very first save records them
+  before anything is written.
+- **Game progress is captured too.** If the game saved since the last version (you played
+  a round in DOSBox with the editor still open), u3edit notices. It records that state as
+  *"Changed outside u3edit"* before writing, and merges your edits on top of it field by
+  field. Your moves, food and position from the game are kept, and your edits still apply.
+- **Readable change logs.** Every version lists exactly what changed:
+  `Korq (party 1): gold 113 → 4321`, `Girl (party 2): +Kings`,
+  `Party moves: 45295 → 45391`. You never have to diff hex dumps.
+- **Restore any version** with `F5` → select → `r` (or `Enter`). The restore is itself
+  recorded as a new version, so even a restore can be undone.
+- **No lock-in.** The versions are plain tarballs: `tar -xjf 0003-*.tar.bz2` gets your files
+  back without u3edit.
+- **The version on disk is marked** with `● on disk`, so you always know where you stand.
+
+## Features
+
+| Character | Inventory | Party |
+|---|---|---|
+| ![Character](docs/screenshots/character.png) | ![Inventory](docs/screenshots/inventory.png) | ![Party](docs/screenshots/party.png) |
+
+- **Characters:** name, status (Good / Poisoned / Dead / Ashes), race, class, gender,
+  Strength, Dexterity, Intelligence, Wisdom, MP, HP, max HP, experience
+- **Marks & cards:** Love, Sol, Moon, Death, Force, Fire, Snake, Kings
+- **Inventory:** food (and sub-morsels), gold, gems, keys, powders, torches, all 7 armour
+  and 15 weapon types, plus what is worn or readied
+- **Party:** transport (foot, horse, ship), move counter, map position, both moon phases
+- **One-key heal (`F3`):** sets the status back to Good (curing poison, death and ashes)
+  and HP to max HP
+- **Per-character revert (`F4`):** throw away the edits to one character and keep the rest
+- **Command palette (`Ctrl+P`):** every action, searchable
+
+![Command palette](docs/screenshots/palette.png)
+
+## Installation
+
+Requires Python ≥ 3.10 and [uv](https://docs.astral.sh/uv/).
+
+```sh
+git clone <this repo> u3edit
+cd u3edit
+uv run u3edit ~/dos/ultima3
+```
+
+Or install it as a tool: `uv tool install .` and run `u3edit` from anywhere.
 
 ## Usage
 
 ```sh
-uv run u3edit /path/to/ultima3          # TUI
-uv run u3edit --dump /path/to/ultima3   # print characters and exit
-uv run u3edit --sync-roster /path/...   # start with roster sync on
+u3edit /path/to/ultima3            # open the TUI
+u3edit --dump /path/to/ultima3     # print all characters and exit
+u3edit --sync-roster /path/...     # start with roster sync enabled
 ```
 
-The directory must contain `ROSTER.ULT` and `PARTY.ULT`; `SOSARIA.ULT` (moon phases) is optional.
-File-name case doesn't matter.
-
-Work on a copy of your save directory.
+The directory must contain `ROSTER.ULT` and `PARTY.ULT`. `SOSARIA.ULT` (moon phases) is
+optional. File-name case doesn't matter.
 
 | Key | Action |
 |---|---|
-| `↑`/`↓` | select roster slot (★ = in active party) |
-| `Tab` | move between fields |
-| `Ctrl+S` / `F2` | save |
-| `F3` | heal (status Good, HP = max HP) |
-| `F4` | revert selected character to file contents |
-| `F5` | history (also via `Ctrl+P` → "History") |
-| `Ctrl+P` | command palette, incl. "Roster sync: turn on/off" |
-| `Ctrl+Q` | quit (asks if unsaved) |
+| `↑` / `↓` | select a roster slot (★ = member of the active party) |
+| `Tab` | next field |
+| `Ctrl+S` / `F2` | save (creates a history version) |
+| `F3` | heal the selected character |
+| `F4` | revert the selected character to the file contents |
+| `F5` | version history |
+| `Ctrl+P` | command palette, incl. *Roster sync: turn on/off* and *History* |
+| `Ctrl+Q` | quit (asks first if there are unsaved changes) |
 
-Editable: name, status, race, class, gender, stats, MP/HP/max HP/exp, food, gold, gems,
-keys, powders, torches, armour/weapon counts plus worn/readied, marks & cards; party
-transport, moves, position, moon phases.
+### Party members and roster sync
 
-## How party members are handled
+While a party is formed, Ultima III works on the copies in `PARTY.ULT`. When it saves, it
+writes only that file, so `ROSTER.ULT` stays stale. u3edit follows the game: selecting a
+party member (★) edits the `PARTY.ULT` record, and by default only that file is written.
 
-While a party is formed, the game uses the copies in `PARTY.ULT`. It writes only that
-file when saving and leaves `ROSTER.ULT` stale. Selecting a roster slot that belongs to the
-active party (★) edits the `PARTY.ULT` record.
+If you want the roster to show the same data, turn on **roster sync** (`Ctrl+P` or
+`--sync-roster`). Saving then copies the party records into their roster slots. The
+status bar always shows the current setting.
 
-**Roster sync** (off by default, like the game): when on, saving also copies the
-party records into their roster slots. Toggle it with `Ctrl+P` or `--sync-roster`; the
-status bar shows the current setting.
+## File format (DOS version)
 
-## Version history
+All numbers are BCD, stored **little-endian** (HP 150 = `50 01`), unlike the Apple II
+original.
 
-Every save adds a version to `<savedir>/.u3edit-history/` as a bzip2 tarball
-(`NNNN-YYYYmmdd-HHMMSS.tar.bz2`) holding the save files and a `meta.json` with the
-list of changes (e.g. `Korq (party 1): gold 113 → 4321`).
-
-- The first save also records the untouched originals ("Original files").
-- If the files on disk changed since the last version, e.g. because the game saved,
-  that state is recorded before it is overwritten ("Changed outside u3edit").
-- `F5` lists all versions with their changes. `r` or `Enter` restores one; the
-  restore itself is recorded as a new version, so it can be undone.
-
-The tarballs are plain `tar -xjf`-able if you need to recover files by hand.
-
-## File format (DOS)
-
-All numbers are BCD, **little-endian** (HP 150 = `50 01`), unlike the Apple II original.
-
-Character record (64 bytes; `ROSTER.ULT` = 20 records, `PARTY.ULT` = 18-byte header + 4 records):
+Character record, 64 bytes (`ROSTER.ULT` = 20 records; `PARTY.ULT` = 18-byte header + 4 records):
 
 | Off | Size | Field |
 |---|---|---|
@@ -79,7 +132,7 @@ Character record (64 bytes; `ROSTER.ULT` = 20 records, `PARTY.ULT` = 18-byte hea
 | 30 | 1 | readied weapon index, then 31-3F weapon counts |
 
 Party header: `00` transport (`3F` foot, `0A` horse, `0B` ship), `03` moves (4 bytes),
-`07` party size, `08/09` x/y, `0A` roster numbers (1-based) of party slots.
+`07` party size, `08/09` x/y, `0A` roster numbers (1-based) of the party slots.
 Moons: `SOSARIA.ULT` offset `0x1224` (left/right phase 0-7).
 
 Sources: [Ultima Codex: Ultima III internal formats](https://wiki.ultimacodex.com/wiki/Ultima_III_internal_formats),
@@ -90,3 +143,11 @@ verified against real DOS saves (`tests/fixtures`).
 ```sh
 uv run pytest
 ```
+
+The tests include headless TUI runs (edit → save → history → restore, plus the case where
+the game saves while the editor is open). They only ever touch temporary copies of the
+fixtures.
+
+## License
+
+[MIT](LICENSE) © 2026 Mathias Menzel-Nielsen
