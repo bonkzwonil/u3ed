@@ -154,6 +154,10 @@ class Character:
     def in_party(self) -> bool:
         return self._get(0x10)[0] == 0xFF
 
+    @in_party.setter
+    def in_party(self, value: bool) -> None:
+        self._set(0x10, b"\xff" if value else b"\0")
+
     @property
     def marks(self) -> int:
         return self._get(0x0E)[0]

@@ -36,8 +36,9 @@ and the history makes it safe:
   *"Changed outside u3edit"* before writing, and merges your edits on top of it field by
   field. Your moves, food and position from the game are kept, and your edits still apply.
 - **Readable change logs.** Every version lists exactly what changed:
-  `Korq (party 1): gold 113 → 4321`, `Girl (party 2): +Kings`,
-  `Party moves: 45295 → 45391`. You never have to diff hex dumps.
+  `Iolo (party 1): status Poisoned → Good, hit points 87 → 412, +Sol`,
+  `Dupre (party 3): gold 851 → 5000`, `Party moves: 31337 → 31402`.
+  You never have to diff hex dumps.
 - **Restore any version** with `F5` → select → `r` (or `Enter`). The restore is itself
   recorded as a new version, so even a restore can be undone.
 - **No lock-in.** The versions are plain tarballs: `tar -xjf 0003-*.tar.bz2` gets your files
@@ -138,10 +139,16 @@ Moons: `SOSARIA.ULT` offset `0x1224` (left/right phase 0-7).
 Sources: [Ultima Codex: Ultima III internal formats](https://wiki.ultimacodex.com/wiki/Ultima_III_internal_formats),
 verified against real DOS saves (`tests/fixtures`).
 
+The screenshots show the demo party from `tests/fixtures/demo`: Iolo, Shamino, Dupre and
+Werdna adventuring together while Minsc waits in the roster, Elminster minds his own
+business, Trebor is dead and Boo, sadly, is ashes.
+
 ## Development
 
 ```sh
 uv run pytest
+uv run python scripts/make_demo.py     # rebuild the demo save
+uv run python scripts/screenshots.py   # re-render docs/screenshots (needs inkscape)
 ```
 
 The tests include headless TUI runs (edit → save → history → restore, plus the case where
