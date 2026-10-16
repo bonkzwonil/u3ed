@@ -90,3 +90,48 @@ def test_sync_toggle_and_external_change(tmp_path):
     labels = [v.label for v in History(game).versions()]
     assert labels[1] == "Changed outside u3edit (game?)"
     assert len(labels) == 4
+
+
+def test_reload_picks_up_game_save(tmp_path):
+    game = make_game(tmp_path)
+    app = U3EditApp(SaveGame(game))
+
+    async def run():
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            # clean reload: just take the new files
+            s = SaveGame(game)
+            s.moves = 12345
+            s.save()
+            await pilot.press("ctrl+r")
+            await pilot.pause()
+            assert app.query_one("#moves", Input).value == "12345"
+            assert not app.save.dirty
+
+            # unsaved edit + game save -> keep edits on top
+            app.query_one("#chars").index = 3
+            await pilot.pause()
+            app.query_one("#num-gold", Input).value = "777"
+            await pilot.pause()
+            s = SaveGame(game)
+            s.moves = 23456
+            s.save()
+            await pilot.press("f6")
+            await pilot.pause()
+            await pilot.click("#keep")
+            await pilot.pause()
+            assert app.query_one("#moves", Input).value == "23456"
+            assert app.query_one("#num-gold", Input).value == "777"
+            assert app.save.dirty
+
+            # discard
+            await pilot.press("ctrl+r")
+            await pilot.pause()
+            await pilot.click("#discard")
+            await pilot.pause()
+            assert app.query_one("#num-gold", Input).value == "113"
+            assert not app.save.dirty
+
+    asyncio.run(run())
+    labels = [v.label for v in History(game).versions()]
+    assert labels == ["Changed outside u3edit (game?)"] * 2 + ["Original files"]

@@ -60,6 +60,10 @@ and the history makes it safe:
 - **One-key heal (`F3`):** sets the status back to Good (curing poison, death and ashes)
   and HP to max HP
 - **Per-character revert (`F4`):** throw away the edits to one character and keep the rest
+- **Hot reload while playing (`Ctrl+R`):** save in DOSBox, hit `Ctrl+R`, and the editor shows
+  the new state, with a notification of what changed. If you have unsaved edits, you choose:
+  keep them on top of the new files, or discard them. Every reload that brings new game
+  progress also adds a history version, so your play session leaves a trail you can rewind.
 - **Command palette (`Ctrl+P`):** every action, searchable
 
 ![Command palette](docs/screenshots/palette.png)
@@ -95,6 +99,7 @@ optional. File-name case doesn't matter.
 | `F3` | heal the selected character |
 | `F4` | revert the selected character to the file contents |
 | `F5` | version history |
+| `Ctrl+R` / `F6` | reload from disk (pick up what the game just saved) |
 | `Ctrl+P` | command palette, incl. *Roster sync: turn on/off* and *History* |
 | `Ctrl+Q` | quit (asks first if there are unsaved changes) |
 

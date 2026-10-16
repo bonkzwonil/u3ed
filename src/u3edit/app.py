@@ -51,6 +51,30 @@ class Confirm(ModalScreen[bool]):
         self.dismiss(False)
 
 
+class Choice(ModalScreen[str | None]):
+    """Question with several answers; dismisses with the chosen button id."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, question: str, choices: list[tuple[str, str]]):
+        super().__init__()
+        self.question, self.choices = question, choices
+
+    def compose(self) -> ComposeResult:
+        with Grid(id="dialog", classes="three"):
+            yield Label(self.question, id="question")
+            for i, (cid, label) in enumerate(self.choices):
+                yield Button(label, variant="primary" if i == 0 else "default", id=cid)
+            yield Button("Cancel", id="cancel")
+
+    @on(Button.Pressed)
+    def done(self, event: Button.Pressed) -> None:
+        self.dismiss(None if event.button.id == "cancel" else event.button.id)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class HistoryScreen(Screen):
     """Browse saved versions and restore one."""
 
@@ -131,7 +155,9 @@ class U3EditApp(App):
     #dialog { grid-size: 2; grid-gutter: 1 2; padding: 1 2; width: 50; height: 11;
               border: thick $error; background: $surface; }
     #question { column-span: 2; height: 1fr; width: 1fr; content-align: center middle; }
-    Confirm { align: center middle; }
+    Confirm, Choice { align: center middle; }
+    #dialog.three { grid-size: 3; width: 72; }
+    #dialog.three #question { column-span: 3; }
     #versions { height: 1fr; border: round $primary; }
     #changes-box { height: 12; border: round $primary; padding: 0 1; }
     """
@@ -140,6 +166,7 @@ class U3EditApp(App):
         Binding("f3", "heal", "Heal"),
         Binding("f4", "revert", "Revert char"),
         Binding("f5", "history", "History"),
+        Binding("ctrl+r,f6", "reload", "Reload"),
         Binding("ctrl+q", "quit", "Quit"),
     ]
 
@@ -162,6 +189,7 @@ class U3EditApp(App):
             self.action_toggle_sync,
         )
         yield SystemCommand("History", "Show saved versions and restore one", self.action_history)
+        yield SystemCommand("Reload from disk", "Pick up what the game saved", self.action_reload)
 
     # --- layout ---------------------------------------------------------
     def compose(self) -> ComposeResult:
@@ -395,12 +423,14 @@ class U3EditApp(App):
         disk = self.save.read_disk()
         latest = self.history.latest()
         if latest is None:
-            self.history.record(disk, "Original files")
+            # Without history nothing was saved yet: what we loaded is the original.
+            previous = self.save.original
+            self.history.record(previous, "Original files")
         else:
             previous = self.history.files(latest)
-            if previous != disk:
-                changes = f.describe_changes(f.SaveGame.from_files(previous), f.SaveGame.from_files(disk))
-                self.history.record(disk, "Changed outside u3edit (game?)", changes)
+        if previous != disk:
+            changes = f.describe_changes(f.SaveGame.from_files(previous), f.SaveGame.from_files(disk))
+            self.history.record(disk, "Changed outside u3edit (game?)", changes)
         return disk
 
     def action_save(self) -> None:
@@ -454,6 +484,39 @@ class U3EditApp(App):
             return
         self.reload_view()
         self.notify(f"Restored version {version.number}")
+
+    def action_reload(self) -> None:
+        if not self.save.dirty:
+            self.reload_from_disk(keep_edits=False)
+            return
+
+        def done(choice: str | None) -> None:
+            if choice:
+                self.reload_from_disk(keep_edits=choice == "keep")
+
+        self.push_screen(Choice(
+            "You have unsaved edits. Reload the files from disk and…",
+            [("keep", "Keep my edits"), ("discard", "Discard edits")],
+        ), done)
+
+    def reload_from_disk(self, keep_edits: bool) -> None:
+        try:
+            before = self.save.original
+            disk = self.snapshot_disk()  # the game's new state lands in the history
+        except OSError as exc:
+            self.notify(f"Reload failed: {exc}", severity="error")
+            return
+        if keep_edits:
+            self.save.rebase(disk)
+        else:
+            self.save.load(disk)
+        self.reload_view()
+        if disk == before:
+            self.notify("Reloaded: files unchanged on disk")
+        else:
+            changes = f.describe_changes(f.SaveGame.from_files(before), f.SaveGame.from_files(disk))
+            summary = "; ".join(changes[:3]) + (f" (+{len(changes) - 3} more)" if len(changes) > 3 else "")
+            self.notify(f"Reloaded: {summary}" + (" — your edits kept on top" if keep_edits else ""))
 
     def action_history(self) -> None:
         self.push_screen(HistoryScreen(self.history, self.save.read_disk()))
