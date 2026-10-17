@@ -36,7 +36,7 @@ and the history makes it safe:
   *"Changed outside u3edit"* before writing, and merges your edits on top of it field by
   field. Your moves, food and position from the game are kept, and your edits still apply.
 - **Readable change logs.** Every version lists exactly what changed:
-  `Iolo (party 1): status Poisoned → Good, hit points 87 → 412, +Sol`,
+  `Iolo (party 1): status Poisoned → Good, hit points 87 → 412, +Card of Sol`,
   `Dupre (party 3): gold 851 → 5000`, `Party moves: 31337 → 31402`.
   You never have to diff hex dumps.
 - **Restore any version** with `F5` → select → `r` (or `Enter`). The restore is itself
@@ -53,7 +53,7 @@ and the history makes it safe:
 
 - **Characters:** name, status (Good / Poisoned / Dead / Ashes), race, class, gender,
   Strength, Dexterity, Intelligence, Wisdom, MP, HP, max HP, experience
-- **Marks & cards:** Love, Sol, Moon, Death, Force, Fire, Snake, Kings
+- **Cards:** Love, Sol, Moon, Death; **marks:** Force, Fire, Snake, Kings
 - **Inventory:** food (and sub-morsels), gold, gems, keys, powders, torches, all 7 armour
   and 15 weapon types, plus what is worn or readied
 - **Party:** transport (foot, horse, ship), move counter, map position, both moon phases
@@ -123,7 +123,7 @@ Character record, 64 bytes (`ROSTER.ULT` = 20 records; `PARTY.ULT` = 18-byte hea
 | Off | Size | Field |
 |---|---|---|
 | 00 | 10 | name, NUL-padded |
-| 0E | 1 | marks/cards bits: Love, Sol, Moon, Death, Force, Fire, Snake, Kings (bit 0..7) |
+| 0E | 1 | bits 0-3 cards: Love, Sol, Moon, Death; bits 4-7 marks: Force, Fire, Snake, Kings |
 | 0F | 1 | torches |
 | 10 | 1 | `FF` = in party |
 | 11 | 1 | status `G P D A` |

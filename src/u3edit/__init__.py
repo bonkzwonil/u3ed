@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .format import ARMOR, MARKS, WEAPONS, SaveGame
+from .format import ARMOR, CARD_BITS, MARK_BITS, WEAPONS, SaveGame
 
 
 def dump(save: SaveGame) -> None:
@@ -17,13 +17,14 @@ def dump(save: SaveGame) -> None:
             continue
         if slot + 1 in save.party_order:
             c = save.party_char(save.party_order.index(slot + 1))
-        marks = [m for i, m in enumerate(MARKS) if c.marks & 1 << i]
+        cards = [n for i, n in CARD_BITS if c.marks & 1 << i]
+        marks = [n for i, n in MARK_BITS if c.marks & 1 << i]
         print(f"{slot + 1:2} {'*' if c.in_party else ' '} {c.summary()}  "
               f"Str {c.get('str')} Dex {c.get('dex')} Int {c.get('int')} Wis {c.get('wis')} "
               f"MP {c.get('mp')} Exp {c.get('exp')} Food {c.get('food')} Gold {c.get('gold')} "
               f"Armor {ARMOR[c.armor] if c.armor < len(ARMOR) else c.armor} "
               f"Weapon {WEAPONS[c.weapon] if c.weapon < len(WEAPONS) else c.weapon} "
-              f"Marks {','.join(marks) or '-'}")
+              f"Cards {','.join(cards) or '-'} Marks {','.join(marks) or '-'}")
 
 
 def main() -> None:

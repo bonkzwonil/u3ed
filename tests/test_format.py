@@ -96,7 +96,7 @@ def test_describe_changes(played):
     new.moves = 7
     new.sync_party_to_roster()
     changes = describe_changes(old, new)
-    assert "Korq (party 1): gold 113 → 4321, +Love" in changes
+    assert "Korq (party 1): gold 113 → 4321, +Card of Love" in changes
     assert "Party moves: 45295 → 7" in changes
     assert changes[-1].startswith("Roster synced from party: ")
 

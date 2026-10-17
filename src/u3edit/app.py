@@ -150,6 +150,10 @@ class U3EditApp(App):
     .form { grid-size: 4; grid-columns: 14 1fr 14 1fr; grid-gutter: 0 1; height: auto; padding: 1 1; }
     .form Label { padding: 1 0 0 1; }
     .section { color: $accent; text-style: bold; padding: 1 1 0 1; }
+    #tokens { height: auto; padding: 0 1; }
+    .tokens { grid-size: 2; grid-columns: 1fr 1fr; height: auto; width: 1fr;
+              border: round $accent; border-title-color: $accent; border-title-style: bold;
+              margin: 1 1 0 0; }
     Input.-invalid { border: tall $error; }
     #status { height: 1; padding: 0 1; background: $panel; }
     #dialog { grid-size: 2; grid-gutter: 1 2; padding: 1 2; width: 50; height: 11;
@@ -213,10 +217,12 @@ class U3EditApp(App):
                             yield Static()
                             for field in f.STATS + f.VITALS:
                                 yield from number_row(field)
-                        yield Label("Marks & Cards", classes="section")
-                        with Grid(classes="form"):
-                            for bit, mark in enumerate(f.MARKS):
-                                yield Checkbox(mark, id=f"mark-{bit}")
+                        with Horizontal(id="tokens"):
+                            for title, bits in (("Cards", f.CARD_BITS), ("Marks", f.MARK_BITS)):
+                                with Grid(classes="tokens") as box:
+                                    box.border_title = title
+                                    for bit, name in bits:
+                                        yield Checkbox(name, id=f"mark-{bit}")
                 with TabPane("Inventory", id="tab-inv"):
                     with VerticalScroll():
                         with Grid(classes="form"):

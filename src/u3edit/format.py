@@ -28,7 +28,12 @@ CLASSES = {
     "R": "Ranger",
 }
 GENDERS = {"M": "Male", "F": "Female", "O": "Other"}
-MARKS = ["Love", "Sol", "Moon", "Death", "Force", "Fire", "Snake", "Kings"]
+# Byte 0x0E: the four cards in bits 0-3, the four marks in bits 4-7.
+CARDS = ["Love", "Sol", "Moon", "Death"]
+MARKS = ["Force", "Fire", "Snake", "Kings"]
+CARD_BITS = [(i, name) for i, name in enumerate(CARDS)]
+MARK_BITS = [(i + 4, name) for i, name in enumerate(MARKS)]
+TOKEN_NAMES = [f"Card of {n}" for n in CARDS] + [f"Mark of {n}" for n in MARKS]
 # Index 0 is "nothing worn/readied"; counts exist for indices 1..n.
 ARMOR = ["Skin", "Cloth", "Leather", "Chain", "Plate", "+2 Chain", "+2 Plate", "Exotic"]
 WEAPONS = [
@@ -411,8 +416,8 @@ def _char_changes(a: Character, b: Character) -> list[str]:
         x, y = a.get(key), b.get(key)
         if x != y:
             out.append(f"{field.label.lower()} {x} → {y}")
-    gained = [m for i, m in enumerate(MARKS) if b.marks & ~a.marks & 1 << i]
-    lost = [m for i, m in enumerate(MARKS) if a.marks & ~b.marks & 1 << i]
+    gained = [m for i, m in enumerate(TOKEN_NAMES) if b.marks & ~a.marks & 1 << i]
+    lost = [m for i, m in enumerate(TOKEN_NAMES) if a.marks & ~b.marks & 1 << i]
     out += [f"+{m}" for m in gained] + [f"-{m}" for m in lost]
     for attr, label, names in (("armor", "worn", ARMOR), ("weapon", "readied", WEAPONS)):
         x, y = getattr(a, attr), getattr(b, attr)
